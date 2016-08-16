@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
 	printf("Mifare classic nested auth key recovery. Phase 1\n\n");
 	
 	if(argc < 9) {
-		printf(" syntax: %s <uid> <nt> <nt_par_err> <nr> <ar> <ar_par_err> <at> <at_par_err> [<next command>]\n\n",argv[0]);
+		printf(" syntax: %s <uid> <{nt}> <nt_par_err> <{nr}> <{ar}> <ar_par_err> <{at}> <at_par_err> [<{next_command}>]\n\n",argv[0]);
 		printf(" example:   nt in trace = 8c!  42 e6! 4e!\n");
 		printf("                     nt = 8c42e64e\n");
 		printf("             nt_par_err = 1011\n\n");
