@@ -9,7 +9,7 @@
 char calc_parity(char byte);
 uint16_t parity_from_err(uint32_t data, uint16_t par_err);
 uint16_t xored_bits(uint16_t nt_par, uint32_t nt_enc, uint16_t ar_par, uint32_t ar_enc, uint16_t at_par, uint32_t at_enc);
-char valid_nonce(uint32_t xored, uint32_t nt);
+char candidate_nonce(uint32_t xored, uint32_t nt, char ev1);
 
 int main(int argc, char *argv[]) {
 	
@@ -70,10 +70,6 @@ int main(int argc, char *argv[]) {
 	uint16_t ar_par = parity_from_err(ar_enc, ar_par_err);
 	uint16_t at_par = parity_from_err(at_enc, at_par_err);
 	
-	//~ printf("nt_par: %04x\n",nt_par);
-	//~ printf("ar_par: %04x\n",ar_par);
-	//~ printf("at_par: %04x\n\n",at_par);
-	
 	//calc (parity XOR corresponding nonce bit encoded with the same keystream bit)
 	uint16_t xored = xored_bits(nt_par, nt_enc, ar_par, ar_enc, at_par, at_enc);
 	
@@ -85,47 +81,68 @@ int main(int argc, char *argv[]) {
 	uint32_t nt;
 	int rolled_bytes = 0;
 	
-	for(nt=0x00000000; nt < 0x0000ffff; nt++) {
-		
-		if(valid_nonce(xored, nt)) {
-			printf("nt: %08x...\n", nt);
-			rolled_bytes = 0;
-			ks2 = ar_enc ^ prng_successor(nt, 64);
-			ks3 = at_enc ^ prng_successor(nt, 96);
-			revstate = lfsr_recovery64(ks2, ks3);
+	printf("Let's try to recover directly the key...\n\n");
+	//first test like tag is mifare classic not ev1, after that try ev1
+	char ev1 = 0;
+	uint16_t count;
+	for(char ev1 = 0; ev1<=1; ev1++) {
+		for(count=0x0000; count < 0xffff; count++) {
 			
-			ks4 = crypto1_word(revstate,0,0);
-			rolled_bytes +=4;
+			nt = count << 16 | prng_successor(count,16);
+			
+			if(candidate_nonce(xored, nt, ev1)) {
+				printf("nt: %08x...\n", nt);
+				rolled_bytes = 0;
+				ks2 = ar_enc ^ prng_successor(nt, 64);
+				ks3 = at_enc ^ prng_successor(nt, 96);
+				revstate = lfsr_recovery64(ks2, ks3);
+				
+				ks4 = crypto1_word(revstate,0,0);
+				rolled_bytes +=4;
 
-			if (ks4 != 0) {
-				printf("\n**** Key candidate found ****\n");
-				printf("current nt:%08x\n", nt);
-				printf("current ar_enc:%08x\n", ar_enc);
-				printf("current at_enc:%08x\n", at_enc);
-				printf("ks2:%08x\n", ks2);
-				printf("ks3:%08x\n", ks3);
-				printf("ks4:%08x\n", ks4);
-				if(cmd_enc) {
-					printf("enc cmd:\t%08x\n", cmd_enc);		
-					printf("decrypted cmd:\t%08x\n", ks4^cmd_enc);
-				}				
-				for(int i=0; i<rolled_bytes; i++) {
-					lfsr_rollback_byte(revstate,0,0);
+				if (ks4 != 0) {
+					if(ev1) {
+						printf("\n**** Key candidate found ****\n");
+					} else {
+						printf("\n**** Key found ****\n");
+					}
+					printf("current nt:\t%08x\n", nt);
+					printf("current ar_enc:\t%08x\n", ar_enc);
+					printf("current at_enc:\t%08x\n", at_enc);
+					printf("ks2:\t\t%08x\n", ks2);
+					printf("ks3:\t\t%08x\n", ks3);
+					printf("ks4:\t\t%08x\n", ks4);
+					if(cmd_enc) {
+						printf("enc cmd:\t%08x\n", cmd_enc);		
+						printf("decrypted cmd:\t%08x\n", ks4^cmd_enc);
+					}				
+					for(int i=0; i<rolled_bytes; i++) {
+						lfsr_rollback_byte(revstate,0,0);
+					}
+
+					lfsr_rollback_word(revstate, 0, 0);
+					lfsr_rollback_word(revstate, 0, 0);
+					lfsr_rollback_word(revstate, nr_enc, 1);
+					lfsr_rollback_word(revstate, uid ^ nt, 0);
+					crypto1_get_lfsr(revstate, &key);
+					if(ev1) {
+						printf("\nKey candidate: [????%8lx]\n",key & 0x0000ffffffff);
+						printf("Now you have to proceed with phase 2\n\n");
+					} else {
+						printf("\nKey: [%012lx]\n\n",key);
+					}
+					return 0;
 				}
-
-				lfsr_rollback_word(revstate, 0, 0);
-				lfsr_rollback_word(revstate, 0, 0);
-				lfsr_rollback_word(revstate, nr_enc, 1);
-				lfsr_rollback_word(revstate, uid ^ nt, 0);
-				crypto1_get_lfsr(revstate, &key);
-				printf("\nKey candidate: [%012lx]\n\n",key);
-				return 0;
+				crypto1_destroy(revstate);
 			}
-			crypto1_destroy(revstate);
 		}
-		//~ sleep(10);
+		if(!ev1) {
+			printf("\nThe card seems has fixed random number generator\n");
+			printf("Let's try another way...\n\n");
+		} else {
+			printf("\nNothing to do... sorry :(\n\n");
+		}
 	}
-	
 	return 0;
 }
 
@@ -198,21 +215,23 @@ uint16_t xored_bits(uint16_t nt_par, uint32_t nt_enc, uint16_t ar_par, uint32_t 
 	return xored;
 }
 
-char valid_nonce(uint32_t xored, uint32_t nt) {
+char candidate_nonce(uint32_t xored, uint32_t nt, char ev1) {
 	char byte;
 	char check;
 	
-	//1st (1st nt)
-	//~ byte = (nt & 0xff000000) >> 24;
-	//~ check = calc_parity(byte) ^ ((nt & 0x00010000) >> 16) ^ ((xored & 0x0200) >> 9);
-	//~ if(check)
-		//~ return 0;
-		
-	//2nd (2nd nt)
-	//~ byte = (nt & 0x00ff0000) >> 16;
-	//~ check = calc_parity(byte) ^ ((nt & 0x00000100) >> 8) ^ ((xored & 0x0100) >> 8);
-	//~ if(check)
-		//~ return 0;
+	if(!ev1) {
+		//1st (1st nt)
+		byte = (nt & 0xff000000) >> 24;
+		check = calc_parity(byte) ^ ((nt & 0x00010000) >> 16) ^ ((xored & 0x0200) >> 9);
+		if(check)
+			return 0;
+			
+		//2nd (2nd nt)
+		byte = (nt & 0x00ff0000) >> 16;
+		check = calc_parity(byte) ^ ((nt & 0x00000100) >> 8) ^ ((xored & 0x0100) >> 8);
+		if(check)
+			return 0;
+	}
 		
 	//3rd (3rd nt)
 	byte = (nt & 0x0000ff00) >> 8;

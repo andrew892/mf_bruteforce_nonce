@@ -6,6 +6,7 @@ Compiling and executing:
 	gcc bruteforce.c crypto1.c crapto1.c -o bruteforce && ./bruteforce
 
 This tool uses parity information leak to speed-up bruteforce and get a candidate key in less then a minute.
+If the tag isn't the lastest version of mifare classic (ev1), this tool can recover directly the key.
 
 	syntax: ./bruteforce <uid> <{nt}> <nt_par_err> <{nr}> <{ar}> <ar_par_err> <{at}> <at_par_err> [<{next_command}>]
 	
