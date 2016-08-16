@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
 	uint32_t cmd_enc = 0x00000000;
 	// end_input
 	
-	printf("Mifare classic nested auth key recovery. Phase 1\n");
+	printf("Mifare classic nested auth key recovery. Phase 1\n\n");
 	
 	if(argc < 9) {
 		printf(" syntax: %s <uid> <nt> <nt_par_err> <nr> <ar> <ar_par_err> <at> <at_par_err> [<next command>]\n\n",argv[0]);
@@ -36,11 +36,6 @@ int main(int argc, char *argv[]) {
 		printf("             nt_par_err = 1011\n\n");
 		return 1;
 	}
-	
-	//~ printf("argc: %d\n",argc);
-	//~ for(int i=0; i<argc; i++) {
-		//~ printf("argv[%d] = %s\n",i,argv[i]);
-	//~ }
 	
 	sscanf(argv[1],"%x",&uid);
 	
@@ -59,25 +54,25 @@ int main(int argc, char *argv[]) {
 		sscanf(argv[9],"%x",&cmd_enc);
 	}
 	
-	printf("uid:\t%08x\n",uid);
-	printf("nt:\t%08x\n",nt_enc);
-	printf("nt_par_err: %04x\n",nt_par_err);
-	printf("nr:\t%08x\n",nr_enc);
-	printf("ar:\t%08x\n",ar_enc);
-	printf("ar_par_err: %04x\n",ar_par_err);
-	printf("at:\t%08x\n",at_enc);
-	printf("at_par_err: %04x\n",at_par_err);
+	printf("uid:\t\t%08x\n",uid);
+	printf("nt encrypted:\t%08x\n",nt_enc);
+	printf("nt parity err:\t%04x\n",nt_par_err);
+	printf("nr encrypted:\t%08x\n",nr_enc);
+	printf("ar encrypted:\t%08x\n",ar_enc);
+	printf("ar parity err:\t%04x\n",ar_par_err);
+	printf("at encrypted:\t%08x\n",at_enc);
+	printf("at parity err:\t%04x\n",at_par_err);
 	if(argc > 9) {
-		printf("cmd:\t%08x\n\n",cmd_enc);
+		printf("next cmd enc:\t%08x\n\n",cmd_enc);
 	}
 	
 	uint16_t nt_par = parity_from_err(nt_enc, nt_par_err);
 	uint16_t ar_par = parity_from_err(ar_enc, ar_par_err);
 	uint16_t at_par = parity_from_err(at_enc, at_par_err);
 	
-	printf("nt_par: %04x\n",nt_par);
-	printf("ar_par: %04x\n",ar_par);
-	printf("at_par: %04x\n\n",at_par);
+	//~ printf("nt_par: %04x\n",nt_par);
+	//~ printf("ar_par: %04x\n",ar_par);
+	//~ printf("at_par: %04x\n\n",at_par);
 	
 	//calc (parity XOR corresponding nonce bit encoded with the same keystream bit)
 	uint16_t xored = xored_bits(nt_par, nt_enc, ar_par, ar_enc, at_par, at_enc);
@@ -203,27 +198,27 @@ uint16_t xored_bits(uint16_t nt_par, uint32_t nt_enc, uint16_t ar_par, uint32_t 
 	return xored;
 }
 
-char valid_nonce(uint32_t magic, uint32_t nt) {
+char valid_nonce(uint32_t xored, uint32_t nt) {
 	char byte;
 	char check;
 	
 	//1st (1st nt)
 	//~ byte = (nt & 0xff000000) >> 24;
-	//~ check = calc_parity(byte) ^ ((nt & 0x00010000) >> 16) ^ ((magic & 0x0200) >> 9);
+	//~ check = calc_parity(byte) ^ ((nt & 0x00010000) >> 16) ^ ((xored & 0x0200) >> 9);
 	//~ if(check)
 		//~ return 0;
 		
 	//2nd (2nd nt)
 	//~ byte = (nt & 0x00ff0000) >> 16;
-	//~ check = calc_parity(byte) ^ ((nt & 0x00000100) >> 8) ^ ((magic & 0x0100) >> 8);
+	//~ check = calc_parity(byte) ^ ((nt & 0x00000100) >> 8) ^ ((xored & 0x0100) >> 8);
 	//~ if(check)
 		//~ return 0;
 		
 	//3rd (3rd nt)
 	byte = (nt & 0x0000ff00) >> 8;
-	check = calc_parity(byte) ^ (nt & 0x00000001) ^ ((magic & 0x0080) >> 7);
+	check = calc_parity(byte) ^ (nt & 0x00000001) ^ ((xored & 0x0080) >> 7);
 	if(check) {
-		//~ printf("errore 3\n");
+		//~ printf("error 3\n");
 		return 0;
 	}
 	
@@ -231,25 +226,25 @@ char valid_nonce(uint32_t magic, uint32_t nt) {
 	
 	//4th (1st ar)
 	byte = (ar & 0xff000000) >> 24;
-	check = calc_parity(byte) ^ ((ar & 0x00010000) >> 16) ^ ((magic & 0x0040) >> 6);
+	check = calc_parity(byte) ^ ((ar & 0x00010000) >> 16) ^ ((xored & 0x0040) >> 6);
 	if(check) {
-		//~ printf("errore 4\n");
+		//~ printf("error 4\n");
 		return 0;
 	}
 	
 	//5th (2nd ar)
 	byte = (ar & 0x00ff0000) >> 16;
-	check = calc_parity(byte) ^ ((ar & 0x00000100) >> 8) ^ ((magic & 0x0020) >> 5);
+	check = calc_parity(byte) ^ ((ar & 0x00000100) >> 8) ^ ((xored & 0x0020) >> 5);
 	if(check) {
-		//~ printf("errore 5\n");
+		//~ printf("error 5\n");
 		return 0;
 	}
 	
 	//6th (3rd ar)
 	byte = (ar & 0x0000ff00) >> 8;
-	check = calc_parity(byte) ^ (ar & 0x00000001) ^ ((magic & 0x0010) >> 4);
+	check = calc_parity(byte) ^ (ar & 0x00000001) ^ ((xored & 0x0010) >> 4);
 	if(check) {
-		//~ printf("errore 6\n");
+		//~ printf("error 6\n");
 		return 0;
 	}
 		
@@ -257,33 +252,33 @@ char valid_nonce(uint32_t magic, uint32_t nt) {
 		
 	//7th (4th ar)
 	byte = (ar & 0x000000ff);
-	check = calc_parity(byte) ^ ((at & 0x01000000) >> 24) ^ ((magic & 0x0008) >> 3);
+	check = calc_parity(byte) ^ ((at & 0x01000000) >> 24) ^ ((xored & 0x0008) >> 3);
 	if(check) {
-		//~ printf("errore 7\n");
+		//~ printf("error 7\n");
 		return 0;
 	}
 	
 	//8th (1st at)
 	byte = (at & 0xff000000) >> 24;
-	check = calc_parity(byte) ^ ((at & 0x00010000) >> 16) ^ ((magic & 0x0004) >> 2);
+	check = calc_parity(byte) ^ ((at & 0x00010000) >> 16) ^ ((xored & 0x0004) >> 2);
 	if(check) {
-		//~ printf("errore 8\n");
+		//~ printf("error 8\n");
 		return 0;
 	}
 	
 	//9th (2nd at)
 	byte = (at & 0x00ff0000) >> 16;
-	check = calc_parity(byte) ^ ((at & 0x00000100) >> 8) ^ ((magic & 0x0002) >> 1);
+	check = calc_parity(byte) ^ ((at & 0x00000100) >> 8) ^ ((xored & 0x0002) >> 1);
 	if(check) {
-		//~ printf("errore 9\n");
+		//~ printf("error 9\n");
 		return 0;
 	}
 	
 	//10th (3rd at)
 	byte = (at & 0x0000ff00) >> 8;
-	check = calc_parity(byte) ^ (at & 0x00000001) ^ ((magic & 0x0001));
+	check = calc_parity(byte) ^ (at & 0x00000001) ^ ((xored & 0x0001));
 	if(check) {
-		//~ printf("errore 10\n");
+		//~ printf("error 10\n");
 		return 0;
 	}
 		
